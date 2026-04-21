@@ -7,7 +7,7 @@
 reg_mode: "protocol"
 # 可选值: "imap" / "icloud_hme" / "freemail" / "cloudflare_temp_email" / "cloudmail" / "mail_curl" / "luckmail"
 email_api_mode: "cloudflare_temp_email"
-# ?????: "local_imap_pool"
+# 额外可选值: "local_imap_pool"
 
 # [基础配置: cloudflare_temp_email / imap / cloudmail 共享]
 # 你的域名 (支持逗号分隔多域名随机轮换) 如果只有一个域名就只填一个域名

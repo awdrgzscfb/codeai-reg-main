@@ -533,8 +533,8 @@ def handle_registration_result(result: Any, cpa_upload: bool = False, run_ctx: d
             print(f"[{ts()}] [WARNING] 触发风控，已将主号标记为死号: {mask_email(master_email)}")
 
     if (signup_blocked or is_dead) and getattr(cfg, "EMAIL_API_MODE", "") == "local_imap_pool":
-        db_manager.update_local_imap_mailbox_status_by_email(master_email, "banned", "????/????")
-        print(f"[{ts()}] [WARNING] ?????IMAP???????? banned: {mask_email(master_email)}")
+        db_manager.update_local_imap_mailbox_status_by_email(master_email, "banned", "触发风控/手机验证")
+        print(f"[{ts()}] [WARNING] 触发风控，IMAP号池邮箱已标记为 banned: {mask_email(master_email)}")
 
     cur_dom = last_email.split("@")[-1] if last_email and "@" in last_email else None
 
