@@ -532,6 +532,10 @@ def handle_registration_result(result: Any, cpa_upload: bool = False, run_ctx: d
             db_manager.update_local_mailbox_status(master_email, 3)
             print(f"[{ts()}] [WARNING] 触发风控，已将主号标记为死号: {mask_email(master_email)}")
 
+    if (signup_blocked or is_dead) and getattr(cfg, "EMAIL_API_MODE", "") == "local_imap_pool":
+        db_manager.update_local_imap_mailbox_status_by_email(master_email, "banned", "????/????")
+        print(f"[{ts()}] [WARNING] ?????IMAP???????? banned: {mask_email(master_email)}")
+
     cur_dom = last_email.split("@")[-1] if last_email and "@" in last_email else None
 
     token_json_str = None
@@ -575,6 +579,9 @@ def handle_registration_result(result: Any, cpa_upload: bool = False, run_ctx: d
             db_manager.update_pool_fission_result(master_email, is_blocked=False, is_raw=is_raw)
         elif not getattr(cfg, "LOCAL_MS_ENABLE_FISSION", False) and cfg.EMAIL_API_MODE == "local_microsoft":
             db_manager.update_local_mailbox_status(master_email, 2)
+
+        if cfg.EMAIL_API_MODE == "local_imap_pool":
+            db_manager.update_local_imap_mailbox_status_by_email(master_email, "used", "")
 
         safe_pwd = str(password) if password else ""
         orig_masked_email = mail_service.mask_email(account_email, force_mask=True)

@@ -46,6 +46,7 @@ class ProxyIMAP4_SSL(imaplib.IMAP4_SSL):
         return sock
 
 luckmail_lock = threading.Lock()
+icloud_hme_lock = threading.Lock()
 
 _CM_TOKEN_CACHE: Optional[str] = None
 
@@ -441,6 +442,50 @@ def get_email_and_token(proxies: Any = None) -> tuple:
         global_postman_fleet.add_mailbox_listener(ms_service, mailbox_info)
         return email, json.dumps(mailbox_info, ensure_ascii=False)
 
+    if mode == "local_imap_pool":
+        try:
+            from utils.email_providers.local_imap_pool_service import get_unused_mailbox
+            mailbox_info = get_unused_mailbox(lock_owner=str(threading.get_ident()))
+            if not mailbox_info:
+                cfg.POOL_EXHAUSTED = True
+                print(f"[{cfg.ts()}] [WARNING] IMAP???????????????")
+                return None, None
+
+            email = mailbox_info["email"]
+            set_last_email(email)
+            print(f"[{cfg.ts()}] [INFO] IMAP?????????: ({mask_email(email)})")
+            return email, json.dumps(mailbox_info, ensure_ascii=False)
+        except Exception as e:
+            print(f"[{cfg.ts()}] [ERROR] IMAP??????: {e}")
+            return None, None
+
+    if mode == "icloud_hme":
+        try:
+            from utils.email_providers.icloud_hme_service import ICloudHMEService
+
+            def _create_icloud_hme():
+                svc = ICloudHMEService(
+                    cookies=getattr(cfg, "ICLOUD_HME_COOKIES", ""),
+                    label=getattr(cfg, "ICLOUD_HME_LABEL", "Wenfxl-Codex"),
+                    proxies=mail_proxies,
+                )
+                return svc.create_email_and_token()
+
+            if getattr(cfg, "ICLOUD_HME_USE_LOCK", True):
+                with icloud_hme_lock:
+                    email, token = _create_icloud_hme()
+            else:
+                email, token = _create_icloud_hme()
+
+            if email:
+                set_last_email(email)
+                print(f"[{cfg.ts()}] [INFO] iCloud HME 成功生成隐藏邮箱: ({mask_email(email)})")
+                return email, token
+            print(f"[{cfg.ts()}] [ERROR] iCloud HME 获取邮箱失败")
+        except Exception as e:
+            print(f"[{cfg.ts()}] [ERROR] iCloud HME 流程异常: {e}")
+        return None, None
+
     prefix, ai_enabled = _get_ai_data_package()
 
     if cfg.ENABLE_SUB_DOMAINS:
@@ -679,7 +724,7 @@ def get_oai_code(
         processed_mail_ids = set()
 
     mail_conn = None
-    if mode == "imap":
+    if mode in ("imap", "icloud_hme"):
         try:
             mail_conn = _create_imap_conn(proxy_str)
             mail_conn.login(cfg.IMAP_USER, cfg.IMAP_PASS.replace(" ", ""))
@@ -700,6 +745,18 @@ def get_oai_code(
             return wait_for_code(email, timeout=timeout)
         else:
             print(f"\n[{cfg.ts()}] [ERROR] 缺少微软邮箱凭据，无法收信。")
+            return ""
+
+    if mode == "local_imap_pool":
+        try:
+            from utils.email_providers.local_imap_pool_service import parse_mailbox_payload, wait_for_verification_code
+            local_imap_mailbox = parse_mailbox_payload(jwt or "")
+            if not local_imap_mailbox:
+                print(f"\n[{cfg.ts()}] [ERROR] ??IMAP????????????")
+                return ""
+            return wait_for_verification_code(local_imap_mailbox, email, max_attempts=max_attempts, proxies=proxies)
+        except Exception as e:
+            print(f"\n[{cfg.ts()}] [ERROR] IMAP??????: {e}")
             return ""
 
     for attempt in range(max_attempts):
@@ -1144,7 +1201,7 @@ def get_oai_code(
                     print(f"\n[{cfg.ts()}] [SUCCESS] Gmail OAuth ({mask_email(email)}) 提取成功: {otp_code}")
                     return otp_code
 
-            elif mode == "imap":
+            elif mode in ("imap", "icloud_hme"):
                 if not mail_conn:
                     try:
                         mail_conn = _create_imap_conn(proxy_str)
@@ -1162,9 +1219,12 @@ def get_oai_code(
                         status, _ = mail_conn.select(folder, readonly=True)
                         if status != "OK":
                             continue
-                        status, messages = mail_conn.search(
-                            None, f'(UNSEEN FROM "openai.com" TO "{email}")'
-                        )
+                        if mode == "icloud_hme":
+                            status, messages = mail_conn.search(None, '(UNSEEN FROM "openai.com")')
+                        else:
+                            status, messages = mail_conn.search(
+                                None, f'(UNSEEN FROM "openai.com" TO "{email}")'
+                            )
                         if status != "OK" or not messages[0]:
                             continue
                         for mail_id in reversed(messages[0].split()):
@@ -1197,14 +1257,17 @@ def get_oai_code(
                                     content = msg.get_payload(decode=True).decode("utf-8", "ignore")
                                 to_h = str(msg.get("To", "")).lower()
                                 del_h = str(msg.get("Delivered-To", "")).lower()
+                                xo_h = str(msg.get("X-Original-To", "")).lower()
                                 tgt = email.lower()
-                                if tgt not in to_h and tgt not in del_h and tgt not in content.lower():
+                                full_text = f"{subject}\n{to_h}\n{del_h}\n{xo_h}\n{content}".lower()
+                                if tgt not in full_text:
                                     processed_mail_ids.add(mail_id)
                                     continue
-                                code = _extract_otp_code(f"{subject}\n{content}")
+                                code = _extract_otp_code(f"{subject}\n{to_h}\n{del_h}\n{xo_h}\n{content}")
                                 if code:
                                     processed_mail_ids.add(mail_id)
-                                    print(f"\n[{cfg.ts()}] [SUCCESS] IMAP ({mask_email(email)})邮箱提取成功: {code}")
+                                    mode_name = "iCloud HME/IMAP" if mode == "icloud_hme" else "IMAP"
+                                    print(f"\n[{cfg.ts()}] [SUCCESS] {mode_name} ({mask_email(email)})??????: {code}")
                                     try:
                                         mail_conn.logout()
                                     except Exception:

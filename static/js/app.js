@@ -33,6 +33,9 @@ createApp({
             heroSmsPrices: [],
             isLoadingBalance: false,
             isLoadingPrices: false,
+            manualPhoneTasks: [],
+            manualPhoneDrafts: {},
+            manualPhoneRefreshTimer: null,
             selectedCfRoutes: [],
 			cfGlobalStatusList: [],
 			cfStatusTimer: null,
@@ -79,6 +82,7 @@ createApp({
                 clash_test: true, tg_token: false, tg_chatid: false, cpa_url: true, sub_url: true,
                 cluster_secret: false, hero_key: false, duck_token: false, duck_cookie: false,
                 luckmail: false,
+                icloud_cookie: false,
                 temporam: false,
                 tmailor_token: false,
                 fvia_token: false,
@@ -122,6 +126,16 @@ createApp({
             showImportMailboxModal: false,
             importMailboxText: '',
             isImportingMailbox: false,
+            imapPool: [],
+            selectedImapPool: [],
+            imapPoolPage: 1,
+            imapPoolPageSize: 10,
+            totalImapPool: 0,
+            showImportImapPoolModal: false,
+            importImapPoolText: '',
+            isImportingImapPool: false,
+            showImapPoolPlaintext: false,
+            imapPoolFilters: { status: '', keyword: '' },
             outlookAuth: {
                 showModal: false,
                 mailbox: null,
@@ -158,6 +172,7 @@ createApp({
     },
     beforeUnmount() {
         if(this.statsTimer) clearInterval(this.statsTimer);
+        if(this.manualPhoneRefreshTimer) clearInterval(this.manualPhoneRefreshTimer);
     },
 	computed: {
         totalPages() {
@@ -168,6 +183,9 @@ createApp({
         },
         mailboxTotalPages() {
             return Math.ceil(this.totalMailboxes / this.mailboxPageSize) || 1;
+        },
+        imapPoolTotalPages() {
+            return Math.ceil(this.totalImapPool / this.imapPoolPageSize) || 1;
         }
     },
     methods: {
@@ -226,17 +244,21 @@ createApp({
             this.loginPassword = '';
 			this.logs = [];
             Object.keys(this.showPwd).forEach(k => this.showPwd[k] = false);
-			if(this.evtSource) {
+            if(this.evtSource) {
                 this.evtSource.close();
                 this.evtSource = null;
             }
             if(this.statsTimer) clearInterval(this.statsTimer);
+            if(this.manualPhoneRefreshTimer) clearInterval(this.manualPhoneRefreshTimer);
         },
         async initApp() {
             await this.fetchConfig();
             this.fetchAccounts();
             this.initSSE();
             this.startStatsPolling();
+            this.fetchManualPhoneTasks();
+            if (this.manualPhoneRefreshTimer) clearInterval(this.manualPhoneRefreshTimer);
+            this.manualPhoneRefreshTimer = setInterval(() => this.fetchManualPhoneTasks(), 5000);
             this.checkUpdate();
             if (this.config && this.config.reg_mode === 'extension') {
                 this.listenToExtension();
@@ -330,6 +352,26 @@ createApp({
                 }
                 if (!this.config.fvia) {
                     this.config.fvia = { token: '' };
+                }
+                if (!this.config.phone_verify) {
+                    this.config.phone_verify = { mode: 'hero_sms', manual_timeout_sec: 600 };
+                }
+                if (!this.config.icloud_hme) {
+                    this.config.icloud_hme = { cookies: '', label: 'Wenfxl-Codex', use_lock: true };
+                }
+                if (!this.config.local_imap_pool) {
+                    this.config.local_imap_pool = {
+                        enabled: true,
+                        default_timeout_sec: 120,
+                        fetch_retry_interval_sec: 5,
+                        max_fetch_retries: 24,
+                        auto_domain_mapping: true,
+                        reuse_used_mailbox: false,
+                        domain_map: {
+                            'gazeta.pl': { server: 'imap.gazeta.pl', port: 993, ssl: true, provider: 'gazeta' },
+                            'poczta.gazeta.pl': { server: 'imap.gazeta.pl', port: 993, ssl: true, provider: 'gazeta' }
+                        }
+                    };
                 }
                 if (!this.config.tmailor) {
                     this.config.tmailor = { current_token: '' };
@@ -431,6 +473,86 @@ createApp({
                 } else { this.showToast("保存失败：" + data.message, "error"); }
             } catch (e) { this.showToast("保存失败网络异常", "error"); }
         },
+        async testIcloudHme() {
+            try {
+                const res = await this.authFetch('/api/icloud_hme/test');
+                const data = await res.json();
+                this.showToast(data.message + (data.email ? `：${data.email}` : ''), data.status === 'success' ? 'success' : 'error');
+            } catch (e) {
+                this.showToast('iCloud HME 测试请求失败', 'error');
+            }
+        },
+        async testImap() {
+            try {
+                const res = await this.authFetch('/api/imap/test');
+                const data = await res.json();
+                this.showToast(data.message, data.status === 'success' ? 'success' : 'error');
+            } catch (e) {
+                this.showToast('IMAP 测试请求失败', 'error');
+            }
+        },
+        async fetchManualPhoneTasks() {
+            try {
+                const res = await this.authFetch('/api/phone/manual/tasks');
+                const data = await res.json();
+                if (data.status === 'success') {
+                    this.manualPhoneTasks = data.data || [];
+                    for (const task of this.manualPhoneTasks) {
+                        if (!this.manualPhoneDrafts[task.task_id]) {
+                            this.manualPhoneDrafts[task.task_id] = { phone_number: task.phone_number || '', code: '' };
+                        } else if (task.phone_number && !this.manualPhoneDrafts[task.task_id].phone_number) {
+                            this.manualPhoneDrafts[task.task_id].phone_number = task.phone_number;
+                        }
+                    }
+                }
+            } catch (e) {}
+        },
+        async sendManualPhoneCode(task) {
+            const phone = String(this.manualPhoneDrafts?.[task.task_id]?.phone_number || '').trim();
+            if (!phone) return this.showToast('请输入手机号', 'warning');
+            try {
+                const res = await this.authFetch('/api/phone/manual/send', {
+                    method: 'POST',
+                    body: JSON.stringify({ task_id: task.task_id, phone_number: phone })
+                });
+                const data = await res.json();
+                this.showToast(data.message, data.status === 'success' ? 'success' : 'error');
+                await this.fetchManualPhoneTasks();
+            } catch (e) {
+                this.showToast('发送验证码请求失败', 'error');
+            }
+        },
+        async submitManualPhoneCode(task) {
+            const code = String(this.manualPhoneDrafts?.[task.task_id]?.code || '').trim();
+            if (!code) return this.showToast('请输入短信验证码', 'warning');
+            try {
+                const res = await this.authFetch('/api/phone/manual/validate', {
+                    method: 'POST',
+                    body: JSON.stringify({ task_id: task.task_id, code })
+                });
+                const data = await res.json();
+                this.showToast(data.message, data.status === 'success' ? 'success' : 'error');
+                if (data.status === 'success' && this.manualPhoneDrafts?.[task.task_id]) {
+                    this.manualPhoneDrafts[task.task_id].code = '';
+                }
+                await this.fetchManualPhoneTasks();
+            } catch (e) {
+                this.showToast('提交验证码请求失败', 'error');
+            }
+        },
+        async cancelManualPhoneTask(task) {
+            try {
+                const res = await this.authFetch('/api/phone/manual/cancel', {
+                    method: 'POST',
+                    body: JSON.stringify({ task_id: task.task_id })
+                });
+                const data = await res.json();
+                this.showToast(data.message, data.status === 'success' ? 'success' : 'error');
+                await this.fetchManualPhoneTasks();
+            } catch (e) {
+                this.showToast('取消任务请求失败', 'error');
+            }
+        },
 		async fetchAccounts(isManual = false) {
             if (isManual) {
                 this.currentPage = 1;
@@ -488,6 +610,9 @@ createApp({
             }
             if (tabId === 'mailboxes') {
                 this.fetchMailboxes();
+            }
+            if (tabId === 'imap_pool') {
+                this.fetchImapPool();
             }
             if (tabId === 'proxy') {
                 this.fetchClashPool();

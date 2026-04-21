@@ -270,6 +270,36 @@ def _extract_next_url(data: Dict[str, Any]) -> str:
     return mapping.get(page_type, "")
 
 
+def _handle_phone_verification(
+        *,
+        session: requests.Session,
+        proxies: Any,
+        email: str,
+        stage: str,
+        hint_url: str = "",
+) -> tuple[bool, str]:
+    mode = str(getattr(cfg, "PHONE_VERIFY_MODE", "hero_sms") or "hero_sms").strip().lower()
+    if mode == "manual":
+        from utils.integrations.manual_phone_verify import create_manual_phone_task, wait_for_manual_phone_result
+        task_id = create_manual_phone_task(
+            session=session,
+            proxies=proxies,
+            email=email,
+            stage=stage,
+            hint_url=hint_url,
+        )
+        print(f"[{cfg.ts()}] [WARNING] （{mask_email(email)}）已创建手动手机验证任务: {task_id}，请前往短信页签完成验证...")
+        return wait_for_manual_phone_result(
+            task_id,
+            timeout=getattr(cfg, "PHONE_VERIFY_MANUAL_TIMEOUT_SEC", 600),
+        )
+    return _try_verify_phone_via_hero_sms(
+        session=session,
+        proxies=proxies,
+        hint_url=hint_url,
+    )
+
+
 @dataclass(frozen=True)
 class OAuthStart:
     auth_url: str
@@ -761,10 +791,12 @@ def run(proxy: Optional[str], run_ctx: dict = None) -> tuple:
                                 continue
                             print(f"[{cfg.ts()}] [WARNING] （{mask_email(email)}） 账号创建过程多次尝试仍触发手机风控，进入 HeroSMS 手机号验证流程...")
                             print(f"[{cfg.ts()}] [WARNING] （{mask_email(email)}） 重点提示：有些邮箱接码后也无法创建成功账号，可能Oauth阶段还需要接码，请自行斟酌...")
-                            if bool(cfg.HERO_SMS_ENABLED) and bool(cfg.HERO_SMS_VERIFY_ON_REGISTER):
-                                ok, next_url_or_reason = _try_verify_phone_via_hero_sms(
+                            if str(getattr(cfg, "PHONE_VERIFY_MODE", "hero_sms")).lower() == "manual" or (bool(cfg.HERO_SMS_ENABLED) and bool(cfg.HERO_SMS_VERIFY_ON_REGISTER)):
+                                ok, next_url_or_reason = _handle_phone_verification(
                                     session=s_reg,
                                     proxies=proxies,
+                                    email=email,
+                                    stage="register",
                                     hint_url=code_account_url
                                 )
 
@@ -1219,9 +1251,11 @@ def run(proxy: Optional[str], run_ctx: dict = None) -> tuple:
                             continue
                         else:
                             print(f"[{cfg.ts()}] [INFO] （{mask_email(email)}） OAuth链路触发风控，进入 HeroSMS 手机号验证流程...")
-                            ok, next_url_or_reason = _try_verify_phone_via_hero_sms(
+                            ok, next_url_or_reason = _handle_phone_verification(
                                 session=s_log,
                                 proxies=proxies,
+                                email=email,
+                                stage="oauth",
                                 hint_url=current_url
                             )
 

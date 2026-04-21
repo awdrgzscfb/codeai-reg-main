@@ -627,13 +627,107 @@
                             </div>
                         </div>
 
-                        <div v-show="currentTab === 'email'" v-if="config" class="grid grid-cols-1 lg:grid-cols-2 gap-5 md:gap-8">
+                                                <div v-show="currentTab === 'imap_pool'" class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative">
+                            <div v-if="showImportImapPoolModal" class="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+                                <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl flex flex-col">
+                                    <h3 class="text-xl font-black text-slate-800 mb-4 flex items-center gap-2"><span>??</span> ???? IMAP ??</h3>
+                                    <p class="text-xs text-slate-500 mb-3 font-bold bg-slate-50 p-2 rounded border border-slate-100">
+                                        ???????????<br>
+                                        <code class="text-sky-600">??----??</code><br>
+                                        <code class="text-sky-600">??----??----IMAP???----??</code>
+                                    </p>
+                                    <textarea v-model="importImapPoolText" class="w-full h-64 appearance-none bg-slate-50 border border-slate-200 text-slate-700 rounded-xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-mono text-xs leading-relaxed placeholder:text-slate-300 mb-4" placeholder="???&#10;abc@gazeta.pl----pass123&#10;foo@example.com----pass456----mail.example.com----993"></textarea>
+                                    <div class="flex justify-end gap-3">
+                                        <button @click="showImportImapPoolModal = false" class="px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-all">??</button>
+                                        <button @click="submitImportImapPool" :disabled="isImportingImapPool" class="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md flex items-center gap-2 transition-all disabled:opacity-50">
+                                            <span v-if="isImportingImapPool" class="animate-spin">?</span>
+                                            ????
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="px-5 md:px-8 py-4 border-b border-slate-100 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-slate-50/50 min-h-[80px]">
+                                <div class="flex items-center gap-3">
+                                    <h2 class="text-xl md:text-2xl font-black text-slate-800 tracking-tight">?? IMAP ??</h2>
+                                    <button @click="fetchImapPool(true)" class="p-1.5 bg-white border border-slate-200 text-slate-500 rounded-lg hover:bg-slate-50 active:scale-95 transition-all shadow-sm" title="????">?</button>
+                                </div>
+                                <div class="flex flex-wrap gap-3 items-center w-full xl:w-auto">
+                                    <input v-model="imapPoolFilters.keyword" @keyup.enter="fetchImapPool(true)" type="text" placeholder="???????" class="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm shadow-sm">
+                                    <select v-model="imapPoolFilters.status" @change="fetchImapPool(true)" class="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm shadow-sm">
+                                        <option value="">????</option>
+                                        <option value="idle">idle</option>
+                                        <option value="using">using</option>
+                                        <option value="used">used</option>
+                                        <option value="invalid">invalid</option>
+                                        <option value="banned">banned</option>
+                                    </select>
+                                    <button @click="showImportImapPoolModal = true" class="text-sm bg-sky-50 text-sky-600 border border-sky-200 px-3 py-1.5 rounded-lg hover:bg-sky-100 transition shadow-sm font-bold">?? ??</button>
+                                    <button @click="showImapPoolPlaintext = !showImapPoolPlaintext" class="text-sm bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition shadow-sm font-bold">{{ showImapPoolPlaintext ? '??' : '??' }}</button>
+                                    <button @click="exportAllImapPool" class="px-3 py-1.5 bg-slate-200/70 text-slate-600 text-sm font-bold rounded-lg hover:bg-slate-300 transition">????</button>
+                                    <button @click="clearAllImapPool" class="px-3 py-1.5 bg-rose-50 text-rose-600 border border-rose-200 text-sm font-bold rounded-lg hover:bg-rose-100 transition">???</button>
+                                </div>
+                            </div>
+                            <div class="px-5 md:px-8 py-3 border-b border-slate-100 bg-white flex flex-wrap gap-2" v-if="selectedImapPool.length > 0">
+                                <span class="text-xs font-black text-indigo-600 px-2 py-1 bg-indigo-50 rounded-lg border border-indigo-100">?? {{ selectedImapPool.length }}</span>
+                                <button @click="setSelectedImapPoolStatus('idle')" class="px-3 py-1 bg-white text-emerald-600 rounded-lg text-xs font-bold shadow-sm border border-emerald-200">?? idle</button>
+                                <button @click="setSelectedImapPoolStatus('invalid')" class="px-3 py-1 bg-white text-amber-600 rounded-lg text-xs font-bold shadow-sm border border-amber-200">?? invalid</button>
+                                <button @click="setSelectedImapPoolStatus('banned')" class="px-3 py-1 bg-white text-rose-600 rounded-lg text-xs font-bold shadow-sm border border-rose-200">?? banned</button>
+                                <button @click="deleteSelectedImapPool" class="px-3 py-1 bg-rose-500 text-white rounded-lg text-xs font-bold shadow-sm">????</button>
+                            </div>
+                            <div class="overflow-x-auto w-full min-h-[420px]">
+                                <table class="min-w-full divide-y divide-slate-100">
+                                    <thead class="bg-slate-50/80">
+                                        <tr>
+                                            <th class="px-5 md:px-8 py-4 text-left w-12"><input type="checkbox" @change="toggleAllImapPool" :checked="selectedImapPool.length === imapPool.length && imapPool.length > 0" class="form-checkbox w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"></th>
+                                            <th class="px-5 md:px-8 py-4 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">??</th>
+                                            <th class="px-5 md:px-8 py-4 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">Provider</th>
+                                            <th class="px-5 md:px-8 py-4 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">IMAP</th>
+                                            <th class="px-5 md:px-8 py-4 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">??</th>
+                                            <th class="px-5 md:px-8 py-4 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">????</th>
+                                            <th class="px-5 md:px-8 py-4 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">????</th>
+                                            <th class="px-5 md:px-8 py-4 text-center text-[11px] font-black text-slate-400 uppercase tracking-widest">??</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-slate-50">
+                                        <tr v-if="imapPool.length === 0"><td colspan="8" class="px-6 py-16 text-center text-slate-400 font-medium bg-slate-50/30">?? IMAP ????</td></tr>
+                                        <tr v-for="row in imapPool" :key="row.id" class="hover:bg-slate-50 transition duration-200">
+                                            <td class="px-5 md:px-8 py-4 whitespace-nowrap"><input type="checkbox" :value="row" v-model="selectedImapPool" class="form-checkbox w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"></td>
+                                            <td class="px-5 md:px-8 py-4 whitespace-nowrap text-sm font-bold text-slate-700">{{ showImapPoolPlaintext ? row.email : maskEmail(row.email) }}</td>
+                                            <td class="px-5 md:px-8 py-4 whitespace-nowrap text-sm text-slate-600 font-mono">{{ row.provider || '-' }}</td>
+                                            <td class="px-5 md:px-8 py-4 whitespace-nowrap text-sm text-slate-500 font-mono">{{ row.imap_server }}:{{ row.imap_port }}</td>
+                                            <td class="px-5 md:px-8 py-4 whitespace-nowrap"><span class="px-2.5 py-1 text-[10px] font-black rounded-md border" :class="row.status === 'idle' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : row.status === 'using' ? 'bg-amber-50 text-amber-600 border-amber-200' : row.status === 'used' ? 'bg-blue-50 text-blue-600 border-blue-200' : row.status === 'invalid' ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-rose-50 text-rose-600 border-rose-200'">{{ row.status }}</span></td>
+                                            <td class="px-5 md:px-8 py-4 text-xs text-slate-500 max-w-[260px] truncate">{{ row.last_error || '-' }}</td>
+                                            <td class="px-5 md:px-8 py-4 whitespace-nowrap text-sm text-slate-500 font-mono">{{ formatTime(row.last_used_at || row.updated_at) }}</td>
+                                            <td class="px-5 md:px-8 py-4 whitespace-nowrap text-center"><button @click="testImapPoolRow(row)" class="inline-flex items-center px-3 py-1.5 bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-300 rounded-lg text-xs font-bold transition-colors shadow-sm active:scale-95">??</button></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="px-5 md:px-8 py-4 border-t border-slate-100 bg-slate-50 flex flex-col md:flex-row items-center justify-between gap-4">
+                                <div class="text-sm text-slate-500 font-bold flex flex-wrap items-center gap-2">
+                                    <span>? <span class="text-sky-600 text-base font-black">{{ totalImapPool }}</span> ????</span>
+                                    <span>? <span class="text-slate-800">{{ imapPoolPage }}</span>/{{ imapPoolTotalPages }} ?</span>
+                                    <select v-model.number="imapPoolPageSize" @change="changeImapPoolPageSize" class="bg-white border border-slate-200 text-slate-700 py-1.5 px-3 rounded-xl shadow-sm focus:outline-none ml-2 font-bold">
+                                        <option :value="10">10 / ?</option>
+                                        <option :value="50">50 / ?</option>
+                                        <option :value="200">200 / ?</option>
+                                    </select>
+                                </div>
+                                <div class="flex gap-2">
+                                    <button @click="changeImapPoolPage(imapPoolPage - 1)" :disabled="imapPoolPage <= 1" class="px-4 py-2 rounded-xl text-sm font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50">???</button>
+                                    <button @click="changeImapPoolPage(imapPoolPage + 1)" :disabled="imapPoolPage >= imapPoolTotalPages" class="px-4 py-2 rounded-xl text-sm font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50">???</button>
+                                </div>
+                            </div>
+                        </div>
+
+<div v-show="currentTab === 'email'" v-if="config" class="grid grid-cols-1 lg:grid-cols-2 gap-5 md:gap-8">
                             <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60">
                                 <h3 class="text-lg md:text-xl font-black text-blue-600 mb-5 flex items-center gap-2 tracking-tight"><span>📧</span> 基础发信设置</h3>
                                 <label class="block text-slate-700 text-sm font-extrabold mb-2">API 模式选择 (email_api_mode)</label>
                                 <select v-model="config.email_api_mode" @change="if(!['freemail', 'imap', 'cloudmail', 'cloudflare_temp_email'].includes(config.email_api_mode)) config.enable_sub_domains = false;" class="w-full appearance-none bg-slate-50 border-2 border-slate-200 text-blue-700 font-black rounded-xl py-3 px-4 focus:outline-none focus:ring-0 focus:border-blue-500 transition-colors shadow-sm cursor-pointer pr-10 relative bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%232563eb%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px_12px] bg-[right_14px_center] bg-no-repeat">
                                     <option value="cloudflare_temp_email">cloudflare_temp_email (CF 临时邮箱)</option>
                                     <option value="imap">imap (直连收件箱)</option>
+                                    <option value="icloud_hme">icloud_hme (苹果隐藏邮箱)</option>
                                     <option value="local_microsoft">本地微软邮箱库</option>
                                     <option value="Gmail_OAuth">Gmail_OAuth</option>
                                     <option value="freemail">freemail</option>
@@ -870,9 +964,91 @@
                                     <div class="text-[11px] text-rose-800 mt-4 font-bold bg-rose-50 border border-rose-100 p-3 rounded-lg leading-relaxed shadow-sm text-center">
                                         <a href="https://myaccount.google.com/apppasswords" class="text-blue-600 hover:text-blue-700 hover:underline flex items-center justify-center gap-1.5 text-sm" target="_blank"><span>🔗</span> 创建谷歌专属密码</a>
                                     </div>
+                                    <button @click="testImap"
+                                            class="w-full px-5 py-3 bg-amber-600 text-white text-sm font-black rounded-xl shadow-md shadow-amber-500/30 hover:bg-amber-700 active:scale-95 transition-all flex items-center justify-center gap-2">
+                                        <span>🧪</span> 测试 IMAP 登录
+                                    </button>
                                 </div>
 
-                                <div v-if="config.email_api_mode === 'local_microsoft' && config.local_microsoft" class="animate-fade-in space-y-4">
+                                <div v-if="config.email_api_mode === 'icloud_hme' && config.icloud_hme" class="animate-fade-in space-y-4">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <span class="text-xs font-black text-amber-800 bg-amber-100 px-3 py-1.5 rounded-md border border-amber-200 shadow-sm uppercase tracking-wider">当前模式</span>
+                                        <span class="text-sm font-black text-slate-700">iCloud Hide My Email</span>
+                                    </div>
+                                    <div class="text-xs text-sky-800 font-bold bg-sky-50 border border-sky-200 p-4 rounded-xl leading-relaxed shadow-sm">
+                                        <p>该模式负责向 Apple 申请“隐藏邮箱别名”，真正收验证码仍依赖下方 IMAP 配置。</p>
+                                        <p class="mt-2">IMAP 请填写 <code>imap.mail.me.com</code>、你的真实 iCloud 邮箱、以及 Apple App 专用密码。</p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-slate-700 text-xs font-extrabold mb-1.5 uppercase tracking-wider">iCloud Cookies</label>
+                                        <div class="relative">
+                                            <textarea v-if="!showPwd.icloud_cookie" readonly :value="maskValue(config.icloud_hme.cookies)"
+                                                      class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-3 pr-10 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-colors shadow-sm font-mono text-xs h-28 resize-y"></textarea>
+                                            <textarea v-else v-model="config.icloud_hme.cookies"
+                                                      class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-3 pr-10 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-colors shadow-sm font-mono text-xs h-28 resize-y"
+                                                      placeholder="例如: X-APPLE-WEBAUTH-USER=...; X-APPLE-ID-SESSION-ID=..."></textarea>
+                                            <button @click="showPwd.icloud_cookie = !showPwd.icloud_cookie" class="absolute right-3 top-3 text-lg text-slate-400 hover:text-blue-500">
+                                                {{ showPwd.icloud_cookie ? '👁️' : '🙈' }}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-slate-700 text-xs font-extrabold mb-1.5 uppercase tracking-wider">标签 (label)</label>
+                                        <input type="text" v-model="config.icloud_hme.label" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-colors shadow-sm text-sm" placeholder="Wenfxl-Codex">
+                                    </div>
+                                    <label class="relative inline-flex p-4 bg-slate-50/80 rounded-xl border border-slate-200 items-center cursor-pointer w-full hover:bg-slate-100/80 transition-colors shadow-sm group">
+                                        <input type="checkbox" v-model="config.icloud_hme.use_lock" class="sr-only peer">
+                                        <div class="relative w-11 h-6 shrink-0 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all after:shadow-sm peer-checked:bg-blue-600 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                        <div class="ml-4 flex-1">
+                                            <span class="font-black text-slate-800 text-sm block tracking-wide">串行生成隐藏邮箱（推荐）</span>
+                                            <p class="mt-1 mb-0 text-xs text-slate-500 font-medium">降低 Apple HME 接口在高并发下的抖动风险</p>
+                                        </div>
+                                    </label>
+                                    <button @click="testIcloudHme"
+                                            class="w-full px-5 py-3 bg-sky-600 text-white text-sm font-black rounded-xl shadow-md shadow-sky-500/30 hover:bg-sky-700 active:scale-95 transition-all flex items-center justify-center gap-2">
+                                        <span>🧪</span> 测试 iCloud HME 发号
+                                    </button>
+                                </div>
+
+                                                                <div v-if="config.email_api_mode === 'local_imap_pool' && config.local_imap_pool" class="animate-fade-in space-y-4">
+                                    <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-5 shadow-sm">
+                                        <div class="flex items-center justify-between gap-3 mb-4">
+                                            <div>
+                                                <h4 class="text-base font-black text-slate-800">?? IMAP ??</h4>
+                                                <p class="text-xs text-slate-500 mt-1">Gazeta ???? 2 ??????????????? 4 ????</p>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label class="block text-xs font-black text-slate-500 mb-1">??????</label>
+                                                <input type="number" v-model.number="config.local_imap_pool.default_timeout_sec" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-3 shadow-sm font-mono text-sm">
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-black text-slate-500 mb-1">??????</label>
+                                                <input type="number" v-model.number="config.local_imap_pool.fetch_retry_interval_sec" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-3 shadow-sm font-mono text-sm">
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                            <label class="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl shadow-sm">
+                                                <span class="text-sm font-bold text-slate-700">??????</span>
+                                                <input type="checkbox" v-model="config.local_imap_pool.auto_domain_mapping" class="sr-only peer">
+                                                <span class="w-11 h-6 bg-slate-200 rounded-full relative transition-all peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:w-5 after:h-5 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-full"></span>
+                                            </label>
+                                            <label class="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl shadow-sm">
+                                                <span class="text-sm font-bold text-slate-700">???? used ??</span>
+                                                <input type="checkbox" v-model="config.local_imap_pool.reuse_used_mailbox" class="sr-only peer">
+                                                <span class="w-11 h-6 bg-slate-200 rounded-full relative transition-all peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:w-5 after:h-5 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-full"></span>
+                                            </label>
+                                        </div>
+                                        <div class="mt-4 text-xs text-slate-500 bg-white border border-slate-200 rounded-xl p-3 font-mono">
+                                            ?????<br>
+                                            gazeta.pl -> imap.gazeta.pl:993<br>
+                                            poczta.gazeta.pl -> imap.gazeta.pl:993
+                                        </div>
+                                    </div>
+                                </div>
+
+<div v-if="config.email_api_mode === 'local_microsoft' && config.local_microsoft" class="animate-fade-in space-y-4">
                                     <div class="flex items-center justify-between mb-2">
                                         <div class="flex items-center gap-2">
                                             <span class="text-xs font-black text-sky-800 bg-sky-100 px-3 py-1.5 rounded-md border border-sky-200 shadow-sm uppercase tracking-wider">当前模式</span>
@@ -1621,6 +1797,69 @@
                                             <div class="relative w-11 h-6 shrink-0 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all after:shadow-sm peer-checked:bg-rose-500 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
                                             <span class="ml-4 text-sm font-black text-rose-900 tracking-wide">账号创建时接码 <span class="text-xs font-medium text-rose-600/80 block mt-0.5">(注: 仅创建拦截有效,非拿OAuth时)</span></span>
                                         </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60 border-t-4 border-t-sky-500 bg-gradient-to-b from-sky-50/30 to-white">
+                                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                                    <div>
+                                        <h3 class="text-xl md:text-2xl font-black text-sky-600 tracking-tight flex items-center gap-2"><span>📲</span> 手动手机验证</h3>
+                                        <p class="text-xs text-slate-500 mt-2 font-medium">当流程触发 add-phone 时，可在此手动输入手机号并提交短信验证码。</p>
+                                    </div>
+                                    <button @click="fetchManualPhoneTasks"
+                                            class="px-4 py-2.5 bg-white text-sky-600 rounded-xl hover:bg-sky-50 active:scale-95 transition-all border border-sky-200 flex items-center justify-center shadow-sm font-bold">
+                                        刷新任务
+                                    </button>
+                                </div>
+
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+                                    <div class="bg-sky-50/60 p-4 rounded-xl border border-sky-100">
+                                        <label class="block text-[11px] text-sky-900 font-black mb-2 uppercase tracking-wider">手机验证模式</label>
+                                        <select v-model="config.phone_verify.mode" class="w-full appearance-none bg-white border border-sky-200 text-slate-700 rounded-lg py-2.5 px-3 shadow-sm text-sm font-bold">
+                                            <option value="hero_sms">HeroSMS 自动接码</option>
+                                            <option value="manual">手动输入手机号/验证码</option>
+                                        </select>
+                                    </div>
+                                    <div class="bg-sky-50/60 p-4 rounded-xl border border-sky-100">
+                                        <label class="block text-[11px] text-sky-900 font-black mb-2 uppercase tracking-wider">手动验证超时 (秒)</label>
+                                        <input type="number" v-model.number="config.phone_verify.manual_timeout_sec" class="w-full appearance-none bg-white border border-sky-200 text-slate-700 rounded-lg py-2.5 px-3 shadow-sm text-sm font-mono">
+                                    </div>
+                                </div>
+
+                                <div v-if="manualPhoneTasks.length === 0" class="text-sm text-slate-500 font-medium bg-slate-50 border border-slate-200 rounded-xl px-4 py-4">
+                                    当前没有待处理的手动手机验证任务。
+                                </div>
+
+                                <div v-for="task in manualPhoneTasks" :key="task.task_id" class="border border-sky-200 rounded-2xl p-5 mb-4 bg-sky-50/40 shadow-sm">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm font-medium text-slate-700 mb-4">
+                                        <div><span class="font-black text-sky-700">邮箱：</span>{{ task.email || '-' }}</div>
+                                        <div><span class="font-black text-sky-700">阶段：</span>{{ task.stage }}</div>
+                                        <div><span class="font-black text-sky-700">状态：</span>{{ task.status }}</div>
+                                        <div><span class="font-black text-sky-700">任务ID：</span><code class="text-xs">{{ task.task_id }}</code></div>
+                                        <div v-if="task.error" class="md:col-span-2 text-rose-600"><span class="font-black">错误：</span>{{ task.error }}</div>
+                                    </div>
+
+                                    <div class="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 mb-3">
+                                        <input v-model="manualPhoneDrafts[task.task_id].phone_number" type="text" placeholder="输入手机号，例如 +8613812345678"
+                                               class="w-full appearance-none bg-white border border-sky-200 text-slate-700 rounded-xl py-3 px-4 shadow-sm text-sm font-mono">
+                                        <button @click="sendManualPhoneCode(task)"
+                                                class="px-5 py-3 bg-sky-600 text-white rounded-xl hover:bg-sky-700 active:scale-95 transition-all font-black shadow-md shadow-sky-500/20">
+                                            发送验证码
+                                        </button>
+                                    </div>
+
+                                    <div class="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-3">
+                                        <input v-model="manualPhoneDrafts[task.task_id].code" type="text" placeholder="输入短信验证码"
+                                               class="w-full appearance-none bg-white border border-sky-200 text-slate-700 rounded-xl py-3 px-4 shadow-sm text-sm font-mono">
+                                        <button @click="submitManualPhoneCode(task)"
+                                                class="px-5 py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 active:scale-95 transition-all font-black shadow-md shadow-emerald-500/20">
+                                            提交验证码
+                                        </button>
+                                        <button @click="cancelManualPhoneTask(task)"
+                                                class="px-5 py-3 bg-white text-rose-600 border border-rose-200 rounded-xl hover:bg-rose-50 active:scale-95 transition-all font-black shadow-sm">
+                                            取消任务
+                                        </button>
                                     </div>
                                 </div>
                             </div>

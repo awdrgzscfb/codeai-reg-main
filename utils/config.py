@@ -92,6 +92,16 @@ IMAP_SERVER: str = ""
 IMAP_PORT: int = 993
 IMAP_USER: str = ""
 IMAP_PASS: str = ""
+LOCAL_IMAP_POOL_ENABLED: bool = False
+LOCAL_IMAP_POOL_DEFAULT_TIMEOUT_SEC: int = 120
+LOCAL_IMAP_POOL_FETCH_RETRY_INTERVAL_SEC: int = 5
+LOCAL_IMAP_POOL_MAX_FETCH_RETRIES: int = 24
+LOCAL_IMAP_POOL_AUTO_DOMAIN_MAPPING: bool = True
+LOCAL_IMAP_POOL_REUSE_USED_MAILBOX: bool = False
+LOCAL_IMAP_POOL_DOMAIN_MAP: dict = {}
+ICLOUD_HME_COOKIES: str = ""
+ICLOUD_HME_LABEL: str = "Wenfxl-Codex"
+ICLOUD_HME_USE_LOCK: bool = True
 LOCAL_MS_ENABLE_FISSION: bool = False
 LOCAL_MS_POOL_FISSION: bool = False
 LOCAL_MS_MASTER_EMAIL: str = ""
@@ -174,6 +184,8 @@ HERO_SMS_SERVICE: str = "openai"
 HERO_SMS_AUTO_PICK_COUNTRY: bool = False
 HERO_SMS_REUSE_PHONE: bool = True
 HERO_SMS_VERIFY_ON_REGISTER: bool = False
+PHONE_VERIFY_MODE: str = "hero_sms"
+PHONE_VERIFY_MANUAL_TIMEOUT_SEC: int = 600
 HERO_SMS_MAX_PRICE: float = 2.0
 HERO_SMS_MIN_BALANCE: float = 2.0
 HERO_SMS_MAX_TRIES: int = 3
@@ -209,6 +221,10 @@ def reload_all_configs(new_config_dict=None):
     global EMAIL_API_MODE, MAIL_DOMAINS, GPTMAIL_BASE, ADMIN_AUTH
     global ENABLE_SUB_DOMAINS, SUB_DOMAIN_COUNT
     global IMAP_SERVER, IMAP_PORT, IMAP_USER, IMAP_PASS
+    global LOCAL_IMAP_POOL_ENABLED, LOCAL_IMAP_POOL_DEFAULT_TIMEOUT_SEC, LOCAL_IMAP_POOL_FETCH_RETRY_INTERVAL_SEC
+    global LOCAL_IMAP_POOL_MAX_FETCH_RETRIES, LOCAL_IMAP_POOL_AUTO_DOMAIN_MAPPING, LOCAL_IMAP_POOL_REUSE_USED_MAILBOX
+    global LOCAL_IMAP_POOL_DOMAIN_MAP
+    global ICLOUD_HME_COOKIES, ICLOUD_HME_LABEL, ICLOUD_HME_USE_LOCK
     global FREEMAIL_API_URL, FREEMAIL_API_TOKEN
     global CM_API_URL, CM_ADMIN_EMAIL, CM_ADMIN_PASS
     global MC_API_BASE, MC_KEY
@@ -234,6 +250,7 @@ def reload_all_configs(new_config_dict=None):
     global HERO_SMS_ENABLED, HERO_SMS_API_KEY, HERO_SMS_BASE_URL, HERO_SMS_COUNTRY, HERO_SMS_SERVICE
     global HERO_SMS_AUTO_PICK_COUNTRY, HERO_SMS_REUSE_PHONE, HERO_SMS_MAX_PRICE, HERO_SMS_VERIFY_ON_REGISTER
     global HERO_SMS_MIN_BALANCE, HERO_SMS_MAX_TRIES, HERO_SMS_POLL_TIMEOUT_SEC
+    global PHONE_VERIFY_MODE, PHONE_VERIFY_MANUAL_TIMEOUT_SEC
     global AI_API_BASE, AI_API_KEY, AI_MODEL, AI_ENABLE_PROFILE
     global CPA_AUTO_CHECK, SUB2API_AUTO_CHECK
     global TG_BOT
@@ -356,6 +373,20 @@ def reload_all_configs(new_config_dict=None):
     IMAP_PORT = _imap.get("port", 993)
     IMAP_USER = _imap.get("user", "")
     IMAP_PASS = _imap.get("pass", "")
+
+    _local_imap_pool = _c.get("local_imap_pool", {})
+    LOCAL_IMAP_POOL_ENABLED = bool(_local_imap_pool.get("enabled", False))
+    LOCAL_IMAP_POOL_DEFAULT_TIMEOUT_SEC = int(_local_imap_pool.get("default_timeout_sec", 120) or 120)
+    LOCAL_IMAP_POOL_FETCH_RETRY_INTERVAL_SEC = int(_local_imap_pool.get("fetch_retry_interval_sec", 5) or 5)
+    LOCAL_IMAP_POOL_MAX_FETCH_RETRIES = int(_local_imap_pool.get("max_fetch_retries", 24) or 24)
+    LOCAL_IMAP_POOL_AUTO_DOMAIN_MAPPING = bool(_local_imap_pool.get("auto_domain_mapping", True))
+    LOCAL_IMAP_POOL_REUSE_USED_MAILBOX = bool(_local_imap_pool.get("reuse_used_mailbox", False))
+    LOCAL_IMAP_POOL_DOMAIN_MAP = _local_imap_pool.get("domain_map", {}) or {}
+
+    _icloud_hme = _c.get("icloud_hme", {})
+    ICLOUD_HME_COOKIES = str(_icloud_hme.get("cookies", "") or "").strip()
+    ICLOUD_HME_LABEL = str(_icloud_hme.get("label", "Wenfxl-Codex") or "Wenfxl-Codex").strip()
+    ICLOUD_HME_USE_LOCK = bool(_icloud_hme.get("use_lock", True))
 
     _local_microsoft = _c.get("local_microsoft", {})
     LOCAL_MS_ENABLE_FISSION = bool(_local_microsoft.get("enable_fission", False))
@@ -486,6 +517,14 @@ def reload_all_configs(new_config_dict=None):
     HERO_SMS_AUTO_PICK_COUNTRY = _hero_sms_conf.get("auto_pick_country", False)
     HERO_SMS_REUSE_PHONE = _hero_sms_conf.get("reuse_phone", True)
     HERO_SMS_VERIFY_ON_REGISTER = _hero_sms_conf.get("verify_on_register", False)
+    _phone_verify = _c.get("phone_verify", {})
+    PHONE_VERIFY_MODE = str(_phone_verify.get("mode", "hero_sms") or "hero_sms").strip().lower()
+    if PHONE_VERIFY_MODE not in {"hero_sms", "manual"}:
+        PHONE_VERIFY_MODE = "hero_sms"
+    try:
+        PHONE_VERIFY_MANUAL_TIMEOUT_SEC = int(_phone_verify.get("manual_timeout_sec", 600) or 600)
+    except Exception:
+        PHONE_VERIFY_MANUAL_TIMEOUT_SEC = 600
 
     try:
         HERO_SMS_MAX_PRICE = float(_hero_sms_conf.get("max_price", 2.0))

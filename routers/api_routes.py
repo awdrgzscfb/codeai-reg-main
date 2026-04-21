@@ -10,6 +10,7 @@ import sys
 import subprocess
 import yaml
 import urllib.parse
+import imaplib
 import httpx
 from fastapi import APIRouter, Depends, Header, Query, Request, WebSocket, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -60,6 +61,20 @@ class SMSPriceReq(BaseModel): service: str = "openai"
 class GmailExchangeReq(BaseModel): code: str
 
 
+class ManualPhoneSendReq(BaseModel):
+    task_id: str
+    phone_number: str
+
+
+class ManualPhoneCodeReq(BaseModel):
+    task_id: str
+    code: str
+
+
+class ManualPhoneCancelReq(BaseModel):
+    task_id: str
+
+
 class CloudAccountItem(BaseModel): id: str; type: str
 
 
@@ -103,6 +118,23 @@ class OutlookExchangeReq(BaseModel):
 class UpdateMailboxStatusReq(BaseModel):
     emails: list[str]
     status: int
+
+
+class ImportImapPoolReq(BaseModel):
+    raw_text: str
+
+
+class DeleteImapPoolReq(BaseModel):
+    ids: list[Any]
+
+
+class UpdateImapPoolStatusReq(BaseModel):
+    ids: list[Any]
+    status: str
+
+
+class TestImapPoolReq(BaseModel):
+    id: int
 # ==========================================
 # 辅助函数
 # ==========================================
@@ -343,6 +375,23 @@ def _sanitize_local_microsoft_config(local_ms: Any) -> dict:
     return data
 
 
+def _sanitize_local_imap_pool_config(local_imap_pool: Any) -> dict:
+    data = dict(local_imap_pool) if isinstance(local_imap_pool, dict) else {}
+    data.setdefault("enabled", False)
+    data.setdefault("default_timeout_sec", 120)
+    data.setdefault("fetch_retry_interval_sec", 5)
+    data.setdefault("max_fetch_retries", 24)
+    data.setdefault("auto_domain_mapping", True)
+    data.setdefault("reuse_used_mailbox", False)
+    domain_map = data.get("domain_map") if isinstance(data.get("domain_map"), dict) else {}
+    if "gazeta.pl" not in domain_map:
+        domain_map["gazeta.pl"] = {"server": "imap.gazeta.pl", "port": 993, "ssl": True, "provider": "gazeta"}
+    if "poczta.gazeta.pl" not in domain_map:
+        domain_map["poczta.gazeta.pl"] = {"server": "imap.gazeta.pl", "port": 993, "ssl": True, "provider": "gazeta"}
+    data["domain_map"] = domain_map
+    return data
+
+
 @router.get("/api/config")
 async def get_config(token: str = Depends(verify_token)):
     config_data = getattr(core_engine.cfg, '_c', {}).copy()
@@ -351,6 +400,7 @@ async def get_config(token: str = Depends(verify_token)):
         config_data["sub2api_mode"].pop("min_remaining_weekly_percent", None)
     config_data["web_password"] = getattr(core_engine.cfg, "WEB_PASSWORD", config_data.get("web_password", "admin"))
     config_data["local_microsoft"] = _sanitize_local_microsoft_config(config_data.get("local_microsoft"))
+    config_data["local_imap_pool"] = _sanitize_local_imap_pool_config(config_data.get("local_imap_pool"))
     return config_data
 
 
@@ -360,6 +410,7 @@ async def save_config(new_config: dict, token: str = Depends(verify_token)):
         if isinstance(new_config.get("sub2api_mode"), dict):
             new_config["sub2api_mode"].pop("min_remaining_weekly_percent", None)
         new_config["local_microsoft"] = _sanitize_local_microsoft_config(new_config.get("local_microsoft"))
+        new_config["local_imap_pool"] = _sanitize_local_imap_pool_config(new_config.get("local_imap_pool"))
         reload_all_configs(new_config_dict=new_config)
 
         return {"status": "success", "message": "✅ 配置已成功保存并同步至云端！"}
@@ -697,6 +748,200 @@ def api_luckmail_bulk_buy(req: LuckMailBulkBuyReq, token: str = Depends(verify_t
         return {"status": "success", "message": f"成功购买 {len(results)} 个邮箱！", "data": results}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+@router.get("/api/phone/manual/tasks")
+def api_manual_phone_tasks(token: str = Depends(verify_token)):
+    from utils.integrations.manual_phone_verify import get_visible_tasks
+    return {"status": "success", "data": get_visible_tasks()}
+
+
+@router.post("/api/phone/manual/send")
+def api_manual_phone_send(req: ManualPhoneSendReq, token: str = Depends(verify_token)):
+    from utils.integrations.manual_phone_verify import send_code
+    ok, msg = send_code(req.task_id, req.phone_number)
+    return {"status": "success" if ok else "error", "message": msg}
+
+
+@router.post("/api/phone/manual/validate")
+def api_manual_phone_validate(req: ManualPhoneCodeReq, token: str = Depends(verify_token)):
+    from utils.integrations.manual_phone_verify import validate_code
+    ok, msg = validate_code(req.task_id, req.code)
+    return {"status": "success" if ok else "error", "message": msg}
+
+
+@router.post("/api/phone/manual/cancel")
+def api_manual_phone_cancel(req: ManualPhoneCancelReq, token: str = Depends(verify_token)):
+    from utils.integrations.manual_phone_verify import cancel_task
+    ok, msg = cancel_task(req.task_id)
+    return {"status": "success" if ok else "error", "message": msg}
+
+
+@router.get("/api/icloud_hme/test")
+def api_test_icloud_hme(token: str = Depends(verify_token)):
+    if getattr(cfg, "EMAIL_API_MODE", "") != "icloud_hme":
+        return {"status": "error", "message": "当前 email_api_mode 不是 icloud_hme"}
+    try:
+        from utils.email_providers.icloud_hme_service import ICloudHMEService
+        svc = ICloudHMEService(
+            cookies=getattr(cfg, "ICLOUD_HME_COOKIES", ""),
+            label=getattr(cfg, "ICLOUD_HME_LABEL", "Wenfxl-Codex"),
+            proxies={"http": cfg.DEFAULT_PROXY, "https": cfg.DEFAULT_PROXY} if getattr(cfg, "USE_PROXY_FOR_EMAIL", False) and getattr(cfg, "DEFAULT_PROXY", "") else None,
+        )
+        email, _ = svc.create_email_and_token()
+        return {"status": "success", "message": "iCloud HME 测试成功", "email": email}
+    except Exception as e:
+        return {"status": "error", "message": f"iCloud HME 测试失败: {e}"}
+
+
+@router.get("/api/imap/test")
+def api_test_imap(token: str = Depends(verify_token)):
+    server = str(getattr(cfg, "IMAP_SERVER", "") or "").strip()
+    port = int(getattr(cfg, "IMAP_PORT", 993) or 993)
+    user = str(getattr(cfg, "IMAP_USER", "") or "").strip()
+    password = str(getattr(cfg, "IMAP_PASS", "") or "").replace(" ", "")
+    if not server or not user or not password:
+        return {"status": "error", "message": "IMAP 配置不完整，请检查 server/user/pass"}
+    try:
+        mail = imaplib.IMAP4_SSL(server, port, timeout=15)
+        mail.login(user, password)
+        status, data = mail.select("INBOX", readonly=True)
+        try:
+            mail.logout()
+        except Exception:
+            pass
+        if status != "OK":
+            return {"status": "error", "message": f"IMAP 登录成功，但打开 INBOX 失败: {data}"}
+        return {"status": "success", "message": "IMAP 登录测试成功", "server": server, "user": user}
+    except Exception as e:
+        return {"status": "error", "message": f"IMAP 测试失败: {e}"}
+
+
+def _resolve_imap_pool_entry(email: str, password: str, server: str = "", port: Any = None) -> tuple[dict | None, str]:
+    email = str(email or "").strip()
+    password = str(password or "").strip()
+    server = str(server or "").strip()
+    if not email or "@" not in email:
+        return None, "??????"
+    if not password:
+        return None, "??????"
+
+    provider = ""
+    if not server:
+        local_cfg = _sanitize_local_imap_pool_config(getattr(cfg, "_c", {}).get("local_imap_pool"))
+        domain_map = local_cfg.get("domain_map", {})
+        domain = email.split("@", 1)[1].lower()
+        matched = domain_map.get(domain)
+        if not matched:
+            return None, f"??????? {domain}???????----??----IMAP???----??"
+        server = str(matched.get("server", "")).strip()
+        port = int(matched.get("port", 993) or 993)
+        provider = str(matched.get("provider", domain.split(".")[0] if "." in domain else domain))
+    else:
+        try:
+            port = int(port or 993)
+        except Exception:
+            return None, "???????"
+        provider = email.split("@", 1)[1].lower()
+
+    return {
+        "email": email,
+        "password": password,
+        "imap_server": server,
+        "imap_port": int(port or 993),
+        "use_ssl": True,
+        "provider": provider,
+    }, ""
+
+
+@router.get("/api/imap-pool")
+async def get_imap_pool(page: int = Query(1), page_size: int = Query(50), status: str = Query(""), keyword: str = Query(""), token: str = Depends(verify_token)):
+    result = db_manager.get_local_imap_mailboxes_page(page, page_size, status, keyword)
+    return {"status": "success", **result}
+
+
+@router.post("/api/imap-pool/import")
+async def import_imap_pool(req: ImportImapPoolReq, token: str = Depends(verify_token)):
+    raw_text = str(req.raw_text or "").strip()
+    if not raw_text:
+        return {"status": "error", "message": "????????"}
+
+    parsed_mailboxes = []
+    parse_errors = []
+    for idx, raw_line in enumerate(raw_text.splitlines(), 1):
+        line = str(raw_line or "").strip()
+        if not line:
+            continue
+        parts = [p.strip() for p in line.split("----")]
+        item = None
+        err = ""
+        if len(parts) == 2:
+            item, err = _resolve_imap_pool_entry(parts[0], parts[1])
+        elif len(parts) == 4:
+            item, err = _resolve_imap_pool_entry(parts[0], parts[1], parts[2], parts[3])
+        else:
+            err = "???????? 2 ?? 4 ?"
+        if item:
+            parsed_mailboxes.append(item)
+        else:
+            parse_errors.append(f"? {idx} ?: {err}")
+
+    if not parsed_mailboxes:
+        return {"status": "error", "message": "?????????", "errors": parse_errors}
+
+    count, db_errors = db_manager.import_local_imap_mailboxes(parsed_mailboxes)
+    all_errors = parse_errors + db_errors
+    return {
+        "status": "success",
+        "message": f"???? {count} ? IMAP ??",
+        "count": count,
+        "errors": all_errors,
+    }
+
+
+@router.post("/api/imap-pool/delete")
+async def delete_imap_pool(req: DeleteImapPoolReq, token: str = Depends(verify_token)):
+    if db_manager.delete_local_imap_mailboxes(req.ids):
+        return {"status": "success", "message": f"???? {len(req.ids)} ???"}
+    return {"status": "error", "message": "????"}
+
+
+@router.post("/api/imap-pool/status")
+async def update_imap_pool_status(req: UpdateImapPoolStatusReq, token: str = Depends(verify_token)):
+    valid = {"idle", "using", "used", "invalid", "banned"}
+    status = str(req.status or "").strip().lower()
+    if status not in valid:
+        return {"status": "error", "message": f"?????????: {', '.join(sorted(valid))}"}
+    if db_manager.batch_update_local_imap_mailboxes_status(req.ids, status):
+        return {"status": "success", "message": f"??? {len(req.ids)} ?????? {status}"}
+    return {"status": "error", "message": "??????"}
+
+
+@router.post("/api/imap-pool/test")
+async def test_imap_pool(req: TestImapPoolReq, token: str = Depends(verify_token)):
+    mailbox = db_manager.get_local_imap_mailbox_by_id(req.id)
+    if not mailbox:
+        return {"status": "error", "message": "?????"}
+    from utils.email_providers.local_imap_pool_service import test_mailbox_login
+    ok, msg = test_mailbox_login(mailbox, proxies={"http": cfg.DEFAULT_PROXY, "https": cfg.DEFAULT_PROXY} if getattr(cfg, "USE_PROXY_FOR_EMAIL", False) and getattr(cfg, "DEFAULT_PROXY", "") else None)
+    if ok:
+        db_manager.batch_update_local_imap_mailboxes_status([req.id], "idle" if mailbox.get("status") != "used" else "used")
+        return {"status": "success", "message": msg}
+    db_manager.mark_local_imap_mailbox_invalid(req.id, msg)
+    return {"status": "error", "message": f"IMAP ????: {msg}"}
+
+
+@router.post("/api/imap-pool/export_all")
+async def export_all_imap_pool(token: str = Depends(verify_token)):
+    data = db_manager.get_all_local_imap_mailboxes_raw()
+    return {"status": "success", "data": data}
+
+
+@router.post("/api/imap-pool/clear_all")
+async def clear_all_imap_pool(token: str = Depends(verify_token)):
+    if db_manager.clear_all_local_imap_mailboxes():
+        return {"status": "success", "message": "??? IMAP ??"}
+    return {"status": "error", "message": "????"}
 
 
 @router.get("/api/gmail/auth_url")

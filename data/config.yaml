@@ -5,8 +5,9 @@
 # https://github.com/s12ryt/mail-curl
 
 reg_mode: "protocol"
-# 可选值: "imap" / "freemail" / "cloudflare_temp_email" / "cloudmail" / "mail_curl" / "luckmail"
+# 可选值: "imap" / "icloud_hme" / "freemail" / "cloudflare_temp_email" / "cloudmail" / "mail_curl" / "luckmail"
 email_api_mode: "cloudflare_temp_email"
+# ?????: "local_imap_pool"
 
 # [基础配置: cloudflare_temp_email / imap / cloudmail 共享]
 # 你的域名 (支持逗号分隔多域名随机轮换) 如果只有一个域名就只填一个域名
@@ -46,6 +47,15 @@ imap:
   user: ""
   # 16位应用专用密码，谷歌邮箱要去https://myaccount.google.com/apppasswords这里创建专属应用密码
   pass: ""
+
+# [模式 "icloud_hme" 专属配置]
+icloud_hme:
+  # iCloud 网页登录后的 Cookie Header String，用于生成苹果隐藏邮箱
+  cookies: ""
+  # 隐藏邮箱标签
+  label: "Wenfxl-Codex"
+  # 建议开启，避免高并发下苹果接口不稳定
+  use_lock: true
 
 # [模式 "本地微软邮箱" 专属]
 local_microsoft:
@@ -255,6 +265,10 @@ hero_sms:
   max_tries: 3
   poll_timeout_sec: 120
 
+phone_verify:
+  mode: "hero_sms" # 可选: "hero_sms" / "manual"
+  manual_timeout_sec: 600
+  
 # 常规量产模式专属配置
 normal_mode:
   # 每次循环注册成功或失败后，最短等待时间 (秒)
